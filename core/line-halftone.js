@@ -381,8 +381,9 @@ export function generateLineHalftoneSvg({ image, options: rawOptions = {} }) {
 
     const smoothed = smooth1D(widths, options.smoothing);
     const widest = smoothed.reduce((max, width) => Math.max(max, width), 0);
-    // in fillMarginWithMinThickness mode every line is drawn (margin lines have exactly minThicknessMm)
-    if (!options.fillMarginWithMinThickness && widest < options.minThicknessMm + 0.03) continue;
+    // skip only truly invisible lines (width near zero); don't filter by minThicknessMm
+    // because bright areas produce lines at exactly minThicknessMm, which are still visible and desired
+    if (widest < 0.03) continue;
 
     const left = [];
     const right = [];
