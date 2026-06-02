@@ -343,7 +343,7 @@ export function generateLineHalftoneSvg({ image, options: rawOptions = {} }) {
     if (!segment) continue;
 
     const segmentLength = dist(segment.a, segment.b);
-    if (segmentLength < options.samplingMm * 1.2) continue;
+    if (segmentLength < 1e-6) continue;
 
     const steps = Math.max(2, Math.ceil(segmentLength / options.samplingMm));
     const centerPoints = new Array(steps + 1);
@@ -401,7 +401,7 @@ export function generateLineHalftoneSvg({ image, options: rawOptions = {} }) {
       [...(rightOutline.length >= 2 ? rightOutline : right)].reverse()
     );
 
-    if (polygon.length < 6) continue;
+    if (polygon.length < 4) continue;
     if (dist2(polygon[0], polygon[Math.floor(polygon.length / 2)]) < 1e-6) continue;
 
     paths.push(`<path d="${pointsToPathD(polygon)}" fill="${options.strokeColor}" stroke="none" />`);
