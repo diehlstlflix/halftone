@@ -115,6 +115,7 @@ export default function LineHalftoneApp() {
   const [simplifyMm, setSimplifyMm] = useState(DEFAULT_GENERATION_OPTIONS.simplifyMm);
   const [invert, setInvert] = useState(DEFAULT_GENERATION_OPTIONS.invert);
   const [transparentSvg, setTransparentSvg] = useState(true);
+  const [fillMarginWithMinThickness, setFillMarginWithMinThickness] = useState(false);
   const [previewBackground, setPreviewBackground] = useState("white");
 
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -154,11 +155,13 @@ export default function LineHalftoneApp() {
       simplifyMm,
       invert,
       transparentSvg,
+      fillMarginWithMinThickness,
     }),
     [
       angleDeg,
       brightness,
       contrast,
+      fillMarginWithMinThickness,
       gamma,
       heightMm,
       imageAspectRatio,
@@ -418,6 +421,15 @@ export default function LineHalftoneApp() {
                 step={0.25}
                 fmt={(v) => v.toFixed(2)}
               />
+              <label className="mt-1 flex items-center gap-2 text-sm text-zinc-300">
+                <input
+                  type="checkbox"
+                  className="accent-zinc-200"
+                  checked={fillMarginWithMinThickness}
+                  onChange={(e) => setFillMarginWithMinThickness(e.target.checked)}
+                />
+                Preencher margem com espessura mínima
+              </label>
               <Slider
                 label="Simplify (mm)"
                 value={simplifyMm}

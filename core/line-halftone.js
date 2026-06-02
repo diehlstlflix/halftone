@@ -18,6 +18,7 @@ export const DEFAULT_GENERATION_OPTIONS = Object.freeze({
   simplifyMm: 0.12,
   invert: false,
   transparentSvg: false,
+  fillMarginWithMinThickness: false,
   svgBackground: "#ffffff",
   strokeColor: "#000000",
 });
@@ -264,6 +265,7 @@ export function normalizeGenerationOptions(rawOptions = {}, imageAspectRatio = n
     simplifyMm: Math.max(0, toNumber(options.simplifyMm, DEFAULT_GENERATION_OPTIONS.simplifyMm)),
     invert: toBoolean(options.invert, DEFAULT_GENERATION_OPTIONS.invert),
     transparentSvg: toBoolean(options.transparentSvg, DEFAULT_GENERATION_OPTIONS.transparentSvg),
+    fillMarginWithMinThickness: toBoolean(options.fillMarginWithMinThickness, DEFAULT_GENERATION_OPTIONS.fillMarginWithMinThickness),
     svgBackground: options.svgBackground ?? DEFAULT_GENERATION_OPTIONS.svgBackground,
     strokeColor: options.strokeColor ?? DEFAULT_GENERATION_OPTIONS.strokeColor,
   };
@@ -292,22 +294,27 @@ export function generateLineHalftoneSvg({ image, options: rawOptions = {} }) {
 
   const W = options.widthMm;
   const H = options.heightMm;
+  // content rect (inside margins) — used for image sampling boundaries
   const rect = {
     xMin: options.marginMm,
     xMax: Math.max(options.marginMm + 0.1, W - options.marginMm),
     yMin: options.marginMm,
     yMax: Math.max(options.marginMm + 0.1, H - options.marginMm),
   };
+  // when fillMarginWithMinThickness, lines extend to the full canvas
+  const clipRect = options.fillMarginWithMinThickness
+    ? { xMin: 0, xMax: W, yMin: 0, yMax: H }
+    : rect;
 
   const center = { x: W / 2, y: H / 2 };
   const angle = (Math.PI / 180) * options.angleDeg;
   const direction = { x: Math.cos(angle), y: Math.sin(angle) };
   const normal = { x: -Math.sin(angle), y: Math.cos(angle) };
   const corners = [
-    { x: rect.xMin, y: rect.yMin },
-    { x: rect.xMax, y: rect.yMin },
-    { x: rect.xMax, y: rect.yMax },
-    { x: rect.xMin, y: rect.yMax },
+    { x: clipRect.xMin, y: clipRect.yMin },
+    { x: clipRect.xMax, y: clipRect.yMin },
+    { x: clipRect.xMax, y: clipRect.yMax },
+    { x: clipRect.xMin, y: clipRect.yMax },
   ];
   const project = (point) => point.x * normal.x + point.y * normal.y;
 
@@ -332,7 +339,7 @@ export function generateLineHalftoneSvg({ image, options: rawOptions = {} }) {
       y: center.y + normal.y * delta,
     };
 
-    const segment = clipLineToRect(anchor, direction, rect);
+    const segment = clipLineToRect(anchor, direction, clipRect);
     if (!segment) continue;
 
     const segmentLength = dist(segment.a, segment.b);
@@ -346,24 +353,36 @@ export function generateLineHalftoneSvg({ image, options: rawOptions = {} }) {
       const t = stepIndex / steps;
       const x = lerp(segment.a.x, segment.b.x, t);
       const y = lerp(segment.a.y, segment.b.y, t);
-      const u = clamp(x / W, 0, 1);
-      const v = clamp(y / H, 0, 1);
-
-      let luma = sampler.sampleLuma(u, v);
-      luma = remapMinMax(luma, options.minBrightness, options.maxBrightness);
-      luma = applyBrightnessContrast(luma, options.brightness, options.contrast);
-
-      let strength = options.invert ? luma : 1 - luma;
-      strength = clamp(strength + options.intensity / 100, 0, 1);
-      strength = Math.pow(strength, options.gamma);
 
       centerPoints[stepIndex] = { x, y };
-      widths[stepIndex] = options.minThicknessMm + strength * (options.maxThicknessMm - options.minThicknessMm);
+
+      const inMargin =
+        options.fillMarginWithMinThickness &&
+        options.marginMm > 0 &&
+        (x < rect.xMin || x > rect.xMax || y < rect.yMin || y > rect.yMax);
+
+      if (inMargin) {
+        widths[stepIndex] = options.minThicknessMm;
+      } else {
+        const u = clamp(x / W, 0, 1);
+        const v = clamp(y / H, 0, 1);
+
+        let luma = sampler.sampleLuma(u, v);
+        luma = remapMinMax(luma, options.minBrightness, options.maxBrightness);
+        luma = applyBrightnessContrast(luma, options.brightness, options.contrast);
+
+        let strength = options.invert ? luma : 1 - luma;
+        strength = clamp(strength + options.intensity / 100, 0, 1);
+        strength = Math.pow(strength, options.gamma);
+
+        widths[stepIndex] = options.minThicknessMm + strength * (options.maxThicknessMm - options.minThicknessMm);
+      }
     }
 
     const smoothed = smooth1D(widths, options.smoothing);
     const widest = smoothed.reduce((max, width) => Math.max(max, width), 0);
-    if (widest < options.minThicknessMm + 0.03) continue;
+    // in fillMarginWithMinThickness mode every line is drawn (margin lines have exactly minThicknessMm)
+    if (!options.fillMarginWithMinThickness && widest < options.minThicknessMm + 0.03) continue;
 
     const left = [];
     const right = [];
