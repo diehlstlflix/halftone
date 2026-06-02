@@ -1,4 +1,4 @@
-import { useDeferredValue, useMemo, useRef, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   DEFAULT_GENERATION_OPTIONS,
@@ -7,6 +7,8 @@ import {
 } from "../core/line-halftone.js";
 
 const MIN_THICKNESS_MM = 0.8;
+const MIN_WIDTH_MM = 100;
+const MAX_WIDTH_MM = 300;
 
 function Section({ title, children, defaultOpen = true }) {
   return (
@@ -88,6 +90,7 @@ async function readImageDataFromFile(file, canvas) {
 export default function LineHalftoneApp() {
   const canvasRef = useRef(null);
   const panStart = useRef(null);
+  const previewRef = useRef(null);
 
   const [fileName, setFileName] = useState("");
   const [image, setImage] = useState(null);
@@ -116,6 +119,20 @@ export default function LineHalftoneApp() {
 
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [dragging, setDragging] = useState(false);
+  const [zoom, setZoom] = useState(1);
+
+  // Mouse wheel zoom via non-passive listener
+  useEffect(() => {
+    const el = previewRef.current;
+    if (!el) return;
+    function onWheel(e) {
+      e.preventDefault();
+      const delta = e.deltaY > 0 ? -0.1 : 0.1;
+      setZoom((z) => Math.min(4, Math.max(0.25, parseFloat((z + delta).toFixed(2)))));
+    }
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, []);
 
   const generationOptions = useMemo(
     () => ({
@@ -177,6 +194,7 @@ export default function LineHalftoneApp() {
     setImage(loaded);
     setImageAspectRatio(loaded.aspectRatio);
     setPan({ x: 0, y: 0 });
+    setZoom(1);
   }
 
   function downloadSvg() {
@@ -221,6 +239,11 @@ export default function LineHalftoneApp() {
 
   function handleTouchEnd() {
     setDragging(false);
+  }
+
+  function resetView() {
+    setPan({ x: 0, y: 0 });
+    setZoom(1);
   }
 
   const previewClass =
@@ -371,7 +394,7 @@ export default function LineHalftoneApp() {
             </Section>
 
             <Section title="Saida" defaultOpen>
-              <Slider label="Width (mm)" value={widthMm} setValue={setWidthMm} min={40} max={260} />
+              <Slider label="Width (mm)" value={widthMm} setValue={setWidthMm} min={MIN_WIDTH_MM} max={MAX_WIDTH_MM} />
               <label className="mt-2 flex items-center gap-2 text-sm text-zinc-300">
                 <input
                   type="checkbox"
@@ -411,17 +434,50 @@ export default function LineHalftoneApp() {
         {/* Preview column */}
         <div className="space-y-4 lg:col-span-2">
           <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4 shadow">
-            <div className="flex items-center justify-between">
+            {/* Preview header */}
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <div className="text-lg font-semibold">Preview</div>
                 <div className="text-sm text-zinc-400">O fundo do preview e separado do SVG exportado.</div>
               </div>
-              <div className="tabular-nums text-xs text-zinc-500">
-                {svgText ? `${(svgText.length / 1024).toFixed(1)} KB` : "-"}
+              <div className="flex items-center gap-2">
+                {/* Zoom controls */}
+                <button
+                  onClick={() => setZoom((z) => Math.max(0.25, parseFloat((z - 0.25).toFixed(2))))}
+                  className="rounded-lg border border-zinc-700 bg-zinc-900/40 px-2.5 py-1 text-sm hover:bg-zinc-800"
+                  type="button"
+                  title="Zoom out"
+                >
+                  −
+                </button>
+                <span className="w-12 text-center tabular-nums text-xs text-zinc-400">
+                  {Math.round(zoom * 100)}%
+                </span>
+                <button
+                  onClick={() => setZoom((z) => Math.min(4, parseFloat((z + 0.25).toFixed(2))))}
+                  className="rounded-lg border border-zinc-700 bg-zinc-900/40 px-2.5 py-1 text-sm hover:bg-zinc-800"
+                  type="button"
+                  title="Zoom in"
+                >
+                  +
+                </button>
+                <button
+                  onClick={resetView}
+                  className="rounded-lg border border-zinc-700 bg-zinc-900/40 px-2.5 py-1 text-xs text-zinc-400 hover:bg-zinc-800"
+                  type="button"
+                  title="Reset view"
+                >
+                  Reset
+                </button>
+                <span className="tabular-nums text-xs text-zinc-600">
+                  {svgText ? `${(svgText.length / 1024).toFixed(1)} KB` : ""}
+                </span>
               </div>
             </div>
 
+            {/* Preview area */}
             <div
+              ref={previewRef}
               className={`mt-4 overflow-hidden rounded-2xl border border-zinc-800 ${previewClass} select-none ${
                 dragging ? "cursor-grabbing" : "cursor-grab"
               }`}
@@ -438,7 +494,8 @@ export default function LineHalftoneApp() {
                 className="grid w-full place-items-center"
                 style={{
                   aspectRatio: `${widthMm}/${effectiveHeightMm}`,
-                  transform: `translate(${pan.x}px, ${pan.y}px)`,
+                  transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+                  transformOrigin: "center",
                   willChange: "transform",
                 }}
               >
@@ -452,7 +509,7 @@ export default function LineHalftoneApp() {
 
             {image && (
               <div className="mt-2 text-xs text-zinc-600">
-                Arraste para mover o preview.
+                Arraste para mover · Scroll para zoom
               </div>
             )}
           </div>
