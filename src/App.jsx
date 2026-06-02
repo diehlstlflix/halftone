@@ -6,6 +6,8 @@ import {
   getOutputHeightMm,
 } from "../core/line-halftone.js";
 
+const MIN_THICKNESS_MM = 0.8;
+
 function Section({ title, children, defaultOpen = true }) {
   return (
     <details className="rounded-2xl border border-zinc-800 bg-zinc-900/60 shadow" open={defaultOpen}>
@@ -85,6 +87,8 @@ async function readImageDataFromFile(file, canvas) {
 
 export default function LineHalftoneApp() {
   const canvasRef = useRef(null);
+  const panStart = useRef(null);
+
   const [fileName, setFileName] = useState("");
   const [image, setImage] = useState(null);
   const [imageAspectRatio, setImageAspectRatio] = useState(1);
@@ -95,7 +99,7 @@ export default function LineHalftoneApp() {
   const [maxBrightness, setMaxBrightness] = useState(DEFAULT_GENERATION_OPTIONS.maxBrightness);
   const [angleDeg, setAngleDeg] = useState(DEFAULT_GENERATION_OPTIONS.angleDeg);
   const [lineSpacingMm, setLineSpacingMm] = useState(DEFAULT_GENERATION_OPTIONS.lineSpacingMm);
-  const [minThicknessMm, setMinThicknessMm] = useState(DEFAULT_GENERATION_OPTIONS.minThicknessMm);
+  const [minThicknessMm, setMinThicknessMm] = useState(MIN_THICKNESS_MM);
   const [maxThicknessMm, setMaxThicknessMm] = useState(DEFAULT_GENERATION_OPTIONS.maxThicknessMm);
   const [intensity, setIntensity] = useState(DEFAULT_GENERATION_OPTIONS.intensity);
   const [gamma, setGamma] = useState(DEFAULT_GENERATION_OPTIONS.gamma);
@@ -107,8 +111,11 @@ export default function LineHalftoneApp() {
   const [marginMm, setMarginMm] = useState(DEFAULT_GENERATION_OPTIONS.marginMm);
   const [simplifyMm, setSimplifyMm] = useState(DEFAULT_GENERATION_OPTIONS.simplifyMm);
   const [invert, setInvert] = useState(DEFAULT_GENERATION_OPTIONS.invert);
-  const [transparentSvg, setTransparentSvg] = useState(DEFAULT_GENERATION_OPTIONS.transparentSvg);
+  const [transparentSvg, setTransparentSvg] = useState(true);
   const [previewBackground, setPreviewBackground] = useState("white");
+
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [dragging, setDragging] = useState(false);
 
   const generationOptions = useMemo(
     () => ({
@@ -158,26 +165,22 @@ export default function LineHalftoneApp() {
   const deferredOptions = useDeferredValue(generationOptions);
   const svgText = useMemo(() => {
     if (!image) return "";
-    return generateLineHalftoneSvg({
-      image,
-      options: deferredOptions,
-    });
+    return generateLineHalftoneSvg({ image, options: deferredOptions });
   }, [deferredOptions, image]);
   const previewMarkup = useMemo(() => (svgText ? { __html: svgText } : null), [svgText]);
 
   async function onPickFile(event) {
     const file = event.target.files?.[0];
     if (!file || !canvasRef.current) return;
-
     setFileName(file.name);
     const loaded = await readImageDataFromFile(file, canvasRef.current);
     setImage(loaded);
     setImageAspectRatio(loaded.aspectRatio);
+    setPan({ x: 0, y: 0 });
   }
 
   function downloadSvg() {
     if (!svgText) return;
-
     const blob = new Blob([svgText], { type: "image/svg+xml;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
@@ -189,6 +192,37 @@ export default function LineHalftoneApp() {
     URL.revokeObjectURL(url);
   }
 
+  function handlePreviewMouseDown(e) {
+    setDragging(true);
+    panStart.current = { x: e.clientX - pan.x, y: e.clientY - pan.y };
+    e.preventDefault();
+  }
+
+  function handlePreviewMouseMove(e) {
+    if (!dragging || !panStart.current) return;
+    setPan({ x: e.clientX - panStart.current.x, y: e.clientY - panStart.current.y });
+  }
+
+  function handlePreviewMouseUp() {
+    setDragging(false);
+  }
+
+  function handleTouchStart(e) {
+    const touch = e.touches[0];
+    setDragging(true);
+    panStart.current = { x: touch.clientX - pan.x, y: touch.clientY - pan.y };
+  }
+
+  function handleTouchMove(e) {
+    if (!dragging || !panStart.current) return;
+    const touch = e.touches[0];
+    setPan({ x: touch.clientX - panStart.current.x, y: touch.clientY - panStart.current.y });
+  }
+
+  function handleTouchEnd() {
+    setDragging(false);
+  }
+
   const previewClass =
     previewBackground === "white" ? "bg-white" : previewBackground === "gray" ? "bg-zinc-200" : "bg-zinc-950";
   const effectiveHeightMm = lockAspect ? Math.round(getOutputHeightMm(widthMm, imageAspectRatio)) : heightMm;
@@ -196,8 +230,10 @@ export default function LineHalftoneApp() {
   return (
     <div className="min-h-screen bg-zinc-950 p-4 text-zinc-100 md:p-8">
       <div className="mx-auto grid max-w-6xl grid-cols-1 gap-6 lg:grid-cols-3">
+
+        {/* Controls column */}
         <div className="lg:col-span-1">
-          <div className="space-y-4 lg:max-h-[calc(100vh-4rem)] lg:overflow-y-auto lg:pr-2">
+          <div className="space-y-4 lg:sticky lg:top-8 lg:max-h-[calc(100vh-4rem)] lg:overflow-y-auto lg:pr-2">
             <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4 shadow">
               <div className="text-lg font-semibold">Line Halftone / Barcode Portrait</div>
               <div className="mt-1 text-sm text-zinc-400">
@@ -275,9 +311,9 @@ export default function LineHalftoneApp() {
             </Section>
 
             <Section title="Linhas" defaultOpen>
-              <div className="mt-2 flex items-center justify-between gap-2">
+              <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div className="text-sm text-zinc-200">Presets de angulo</div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <PresetButton label="0 deg" onClick={() => setAngleDeg(0)} />
                   <PresetButton label="45 deg" onClick={() => setAngleDeg(45)} />
                   <PresetButton label="90 deg" onClick={() => setAngleDeg(90)} />
@@ -293,16 +329,16 @@ export default function LineHalftoneApp() {
                 min={0.6}
                 max={6}
                 step={0.05}
-                fmt={(value) => value.toFixed(2)}
+                fmt={(v) => v.toFixed(2)}
               />
               <Slider
                 label="Min thickness (mm)"
                 value={minThicknessMm}
                 setValue={setMinThicknessMm}
-                min={0}
+                min={MIN_THICKNESS_MM}
                 max={2}
                 step={0.05}
-                fmt={(value) => value.toFixed(2)}
+                fmt={(v) => v.toFixed(2)}
               />
               <Slider
                 label="Max thickness (mm)"
@@ -311,7 +347,7 @@ export default function LineHalftoneApp() {
                 min={0.2}
                 max={8}
                 step={0.05}
-                fmt={(value) => value.toFixed(2)}
+                fmt={(v) => v.toFixed(2)}
               />
               <Slider
                 label="Gamma"
@@ -320,7 +356,7 @@ export default function LineHalftoneApp() {
                 min={0.2}
                 max={3}
                 step={0.05}
-                fmt={(value) => value.toFixed(2)}
+                fmt={(v) => v.toFixed(2)}
               />
               <Slider
                 label="Sampling (mm)"
@@ -329,7 +365,7 @@ export default function LineHalftoneApp() {
                 min={0.2}
                 max={3}
                 step={0.05}
-                fmt={(value) => value.toFixed(2)}
+                fmt={(v) => v.toFixed(2)}
               />
               <Slider label="Smoothing" value={smoothing} setValue={setSmoothing} min={0} max={10} />
             </Section>
@@ -357,7 +393,7 @@ export default function LineHalftoneApp() {
                 min={0}
                 max={20}
                 step={0.25}
-                fmt={(value) => value.toFixed(2)}
+                fmt={(v) => v.toFixed(2)}
               />
               <Slider
                 label="Simplify (mm)"
@@ -366,12 +402,13 @@ export default function LineHalftoneApp() {
                 min={0}
                 max={1}
                 step={0.01}
-                fmt={(value) => value.toFixed(2)}
+                fmt={(v) => v.toFixed(2)}
               />
             </Section>
           </div>
         </div>
 
+        {/* Preview column */}
         <div className="space-y-4 lg:col-span-2">
           <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4 shadow">
             <div className="flex items-center justify-between">
@@ -384,8 +421,27 @@ export default function LineHalftoneApp() {
               </div>
             </div>
 
-            <div className={`mt-4 overflow-hidden rounded-2xl border border-zinc-800 ${previewClass}`}>
-              <div className="grid w-full place-items-center" style={{ aspectRatio: `${widthMm}/${effectiveHeightMm}` }}>
+            <div
+              className={`mt-4 overflow-hidden rounded-2xl border border-zinc-800 ${previewClass} select-none ${
+                dragging ? "cursor-grabbing" : "cursor-grab"
+              }`}
+              style={{ maxHeight: "65vh" }}
+              onMouseDown={handlePreviewMouseDown}
+              onMouseMove={handlePreviewMouseMove}
+              onMouseUp={handlePreviewMouseUp}
+              onMouseLeave={handlePreviewMouseUp}
+              onTouchStart={handleTouchStart}
+              onTouchMove={handleTouchMove}
+              onTouchEnd={handleTouchEnd}
+            >
+              <div
+                className="grid w-full place-items-center"
+                style={{
+                  aspectRatio: `${widthMm}/${effectiveHeightMm}`,
+                  transform: `translate(${pan.x}px, ${pan.y}px)`,
+                  willChange: "transform",
+                }}
+              >
                 {previewMarkup ? (
                   <div className="h-full w-full" dangerouslySetInnerHTML={previewMarkup} />
                 ) : (
@@ -393,6 +449,12 @@ export default function LineHalftoneApp() {
                 )}
               </div>
             </div>
+
+            {image && (
+              <div className="mt-2 text-xs text-zinc-600">
+                Arraste para mover o preview.
+              </div>
+            )}
           </div>
 
           <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4 shadow">
